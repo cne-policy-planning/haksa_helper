@@ -8,8 +8,9 @@
   화면 컨셉: 사용자 참고 이미지(2026-10-01) — 연회색 바탕, 흰 카드, 파란 기본 버튼, 월 단위 달력 + 날짜별 편집
 
   [후속-API] 표시 위치 목록(코드에서 "[후속-API]"로 찾기)
-   1. getHolidays()          : 지금은 내장 자료만 사용 → 나중에 공휴일 목록 파일을 먼저 읽고, 실패하면 내장 자료
-   2. compareHolidaysOnOpen(): 저장 파일 다시 열 때 새 공휴일 반영·알림(3단계에서 연결)
+   (2026-11-20 연결) 공휴일 목록 파일 holidays.json을 읽어 내장 자료에 없는 공휴일을 더함. 못 읽으면 내장 자료만 사용
+   1. getHolidays()          : 내장 자료로 계산한 뒤 공휴일 목록 파일(깃허브 자동 실행이 매주 만든 파일)에만 있는 날을 더함
+   2. findNewHolidays()·applyNewHolidays(): 저장 파일 다시 열 때 새 공휴일을 찾아 물어본 뒤 반영
    3. HOLIDAY_SOURCE_LABEL   : 공휴일 반영 기준일 표시
 -->
 <style>
@@ -26,7 +27,9 @@
   --f-g4:#B5DDD3; --f-g5:#EBC3A3; --f-g6:#ADC8A4;
   /* 화면 달력의 공휴일·휴업 칸: 학년 행사 색과 비슷한 밝기의 연한 분홍(한글 출력은 결정 사항대로 주황 유지) */
   --f-hol:#F4CFCB; --f-hol-ink:#9B1C1C; --range:#CFDDFB; --range-ink:#1E3A8A; --ok:#15803D; --amber:#B45309;
-  --lv:#15803D; --lv-ink:#FFFFFF; --lv-line:#B7DEC4;
+  /* 학교급 대표 색(2026-11-20): 중등 = 파랑, 초등 = 초록. 버튼·선택 표시·학교급 전환이 모두 지금 학교급의 색을 따름 */
+  --mid:#2563EB; --mid-ink:#FFFFFF; --elem:#15803D; --elem-ink:#FFFFFF;
+  --lv:var(--accent); --lv-ink:var(--accent-ink); --lv-line:#BFD0F7;
   --font:"Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",sans-serif;
   --r:12px;
 }
@@ -36,7 +39,7 @@
     --ink:#EEF1F4; --ink2:#CDD3DA; --sub:#9AA3AD; --faint:#6B7480;
     --accent:#5B8DEF; --accent-ink:#0B1220; --accent-soft:#1B2740;
     --red:#F87171; --warn:#F97066; --holiday:#C9560C; --off:#2B3037; --off-ink:#8C939C; --blue:#8DB0FF;
-    --f-all:#2B3B55; --f-g1:#4D4122; --f-g2:#2F432B; --f-g3:#4B4530; --f-g4:#24433D; --f-g5:#4E3626; --f-g6:#2E4029; --f-ink:#E9EDF2; --f-hol:#552A2C; --f-hol-ink:#FFC4BE; --range:#24375E; --range-ink:#DCE6FF; --ok:#4ADE80; --amber:#FBBF24; --lv:#22C55E; --lv-ink:#06210F; --lv-line:#245C38;
+    --f-all:#2B3B55; --f-g1:#4D4122; --f-g2:#2F432B; --f-g3:#4B4530; --f-g4:#24433D; --f-g5:#4E3626; --f-g6:#2E4029; --f-ink:#E9EDF2; --f-hol:#552A2C; --f-hol-ink:#FFC4BE; --range:#24375E; --range-ink:#DCE6FF; --ok:#4ADE80; --amber:#FBBF24; --mid:#5B8DEF; --mid-ink:#0B1220; --elem:#22C55E; --elem-ink:#06210F; --lv-line:#2B3F6B;
     color-scheme:dark;
   }
 }
@@ -45,12 +48,18 @@
   --ink:#EEF1F4; --ink2:#CDD3DA; --sub:#9AA3AD; --faint:#6B7480;
   --accent:#5B8DEF; --accent-ink:#0B1220; --accent-soft:#1B2740;
   --red:#F87171; --warn:#F97066; --holiday:#C9560C; --off:#2B3037; --off-ink:#8C939C; --blue:#8DB0FF;
-    --f-all:#2B3B55; --f-g1:#4D4122; --f-g2:#2F432B; --f-g3:#4B4530; --f-g4:#24433D; --f-g5:#4E3626; --f-g6:#2E4029; --f-ink:#E9EDF2; --f-hol:#552A2C; --f-hol-ink:#FFC4BE; --range:#24375E; --range-ink:#DCE6FF; --ok:#4ADE80; --amber:#FBBF24; --lv:#22C55E; --lv-ink:#06210F; --lv-line:#245C38;
+    --f-all:#2B3B55; --f-g1:#4D4122; --f-g2:#2F432B; --f-g3:#4B4530; --f-g4:#24433D; --f-g5:#4E3626; --f-g6:#2E4029; --f-ink:#E9EDF2; --f-hol:#552A2C; --f-hol-ink:#FFC4BE; --range:#24375E; --range-ink:#DCE6FF; --ok:#4ADE80; --amber:#FBBF24; --mid:#5B8DEF; --mid-ink:#0B1220; --elem:#22C55E; --elem-ink:#06210F; --lv-line:#2B3F6B;
   color-scheme:dark;
 }
+:root[data-lvtheme="elem"]{ --accent:#15803D; --accent-ink:#FFFFFF; --accent-soft:#EAF6EE; --range:#CFEBD8; --range-ink:#14532D; --lv-line:#B7DEC4; }
+@media (prefers-color-scheme: dark){
+  :root[data-lvtheme="elem"]:not([data-theme="light"]){ --accent:#22C55E; --accent-ink:#06210F; --accent-soft:#16301F; --range:#1F4A30; --range-ink:#DCFCE7; --lv-line:#245C38; }
+}
+:root[data-theme="dark"][data-lvtheme="elem"]{ --accent:#22C55E; --accent-ink:#06210F; --accent-soft:#16301F; --range:#1F4A30; --range-ink:#DCFCE7; --lv-line:#245C38; }
 *,*::before,*::after{box-sizing:border-box}
 body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.55}
-.wrap{max-width:1240px;margin:0 auto;padding-inline:16px;padding-block:28px 64px;display:grid;gap:24px}
+/* 폭(2026-11-20): 화면 폭에 맞춰 늘어남. 아주 넓은 화면에서만 1840px에서 멈춤 */
+.wrap{max-width:1840px;margin:0 auto;padding-inline:clamp(16px,3vw,56px);padding-block:28px 64px;display:grid;gap:24px}
 button{font:inherit;cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
@@ -59,7 +68,7 @@ button{font:inherit;cursor:pointer}
 .top h1{margin:0;font-size:24px;font-weight:700;letter-spacing:-0.02em;text-wrap:balance}
 .top p{margin:2px 0 0;font-size:13px;color:var(--sub)}
 .top .btns{display:flex;gap:8px;flex-wrap:wrap}
-/* 학교급 전환: 제목 옆, 다른 버튼(파랑)과 구분되게 초록 */
+/* 학교급 전환: 제목 옆. 지금 학교급의 대표 색 */
 .ttlrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
 .lvsw{display:inline-flex;border:1px solid var(--lv-line);border-radius:999px;overflow:hidden;background:var(--card);padding:2px;gap:2px}
 .lvsw button{border:0;border-radius:999px;background:transparent;color:var(--sub);font-weight:500;font-size:14px;padding:5px 14px}
@@ -145,7 +154,7 @@ table.month td.ev{font-size:13px;color:var(--ink2);line-height:1.6;word-break:ke
 .calfoot .dot{width:6px;height:6px;border-radius:50%;background:var(--red)}
 
 /* 두 칸 배치: 왼쪽 학기 달력, 오른쪽 고정 편집 칸 */
-.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:start}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) clamp(340px,26%,460px);gap:24px;align-items:start}
 .main{display:grid;gap:20px;min-width:0}
 .months{display:grid;gap:20px;min-width:0}
 .months > *{min-width:0}
@@ -209,6 +218,8 @@ select.text{appearance:auto}
 .seg label+label{border-left:1px solid var(--line)}
 .seg input{position:absolute;opacity:0;pointer-events:none}
 .seg label:has(input:checked){background:var(--accent);color:var(--accent-ink)}
+.seg label:has(input[name="level"][value="elem"]:checked){background:var(--elem);color:var(--elem-ink)}
+.seg label:has(input[name="level"][value="mid"]:checked){background:var(--mid);color:var(--mid-ink)}
 .seg label:has(input:disabled){cursor:not-allowed;color:var(--faint)}
 .hint{font-size:13px;color:var(--sub);margin:0}
 .err{color:var(--warn);font-size:14px;margin:0}
@@ -264,6 +275,10 @@ table.cal tfoot td{font-weight:700;background:var(--head);border-bottom:0}
 .lv span{font-size:14px;color:var(--sub)}
 .lv:hover{border-color:var(--accent);background:var(--accent-soft)}
 .lv:hover b{color:var(--accent)}
+.lv[data-level="elem"]{border-top:4px solid var(--elem)} .lv[data-level="mid"]{border-top:4px solid var(--mid)}
+.lv[data-level="elem"] b{color:var(--elem)} .lv[data-level="mid"] b{color:var(--mid)}
+.lv[data-level="elem"]:hover{border-color:var(--elem);background:color-mix(in srgb,var(--elem) 8%,var(--card))}
+.lv[data-level="mid"]:hover{border-color:var(--mid);background:color-mix(in srgb,var(--mid) 8%,var(--card))}
 .start .resume{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding-top:16px;border-top:1px solid var(--line2);font-size:14px;color:var(--sub)}
 @media (max-width:520px){ .levels{grid-template-columns:1fr} .start{padding:22px 16px} }
 
@@ -543,8 +558,9 @@ dialog.paste::backdrop{background:rgba(15,18,22,.45)}
 
 <script>
 /* ===================== 공휴일 내장 자료 ===================== */
-// [후속-API] 3. 공휴일 반영 기준일 표시: 나중에는 공휴일 목록 파일의 갱신 날짜로 바꿈
-const HOLIDAY_SOURCE_LABEL = '공휴일 자료: 내장 자료(2026-09-30 기준)';
+// [후속-API] 3. 공휴일 반영 기준일 표시: 공휴일 목록 파일을 읽으면 그 파일의 갱신 날짜로 바뀜
+const BUILTIN_SOURCE_LABEL = '공휴일 자료: 내장 자료(2026-09-30 기준)';
+let HOLIDAY_SOURCE_LABEL = BUILTIN_SOURCE_LABEL;
 
 // 음력 공휴일: 한국천문연구원(우주항공청) 월력요항 기준
 const LUNAR = {
@@ -616,28 +632,92 @@ function addSubstitutes(list){
   return [...list.map(h=>({...h, kind: h.kind || '공휴일'})), ...subs];
 }
 
-// [후속-API] 1. 공휴일 가져오기: 지금은 내장 자료만 사용.
-// 나중에: 공휴일 목록 파일(GitHub Actions가 만든 파일)을 먼저 읽고, 못 읽으면 아래 내장 자료로 계산
+// [후속-API] 1. 공휴일 가져오기(2026-11-20 연결)
+// 공휴일 목록 파일(holidays.json): 깃허브 자동 실행이 매주 공공데이터포털 '특일 정보'에서 받아 저장소에 넣어 둠.
+// 이 프로그램은 그 파일을 읽기만 함(인증키 없음, 작성 내용은 어디에도 보내지 않음). 못 읽으면 내장 자료만 씀.
+// 깃허브 자동 실행이 넣은 파일은 웹 페이지 쪽에 바로 반영되지 않으므로 저장소 원본 주소를 먼저 읽고, 안 되면 같은 폴더의 파일을 읽음
+let REMOTE = null, remoteTried = null;       // REMOTE = {updated:'2026-11-20', years:[…], list:[{date,name}]}
+function holidayFileUrls(){
+  const urls = [];
+  const m = location.hostname.match(/^([a-z0-9-]+)\.github\.io$/i), repo = location.pathname.split('/')[1];
+  if (m && repo) urls.push(`https://raw.githubusercontent.com/${m[1]}/${repo}/HEAD/holidays.json`);
+  if (/^https?:$/.test(location.protocol)) urls.push('holidays.json');
+  return urls;
+}
+// 특일 정보의 이름을 이 프로그램의 이름으로: '대체공휴일(노동절)' → '노동절 대체공휴일', '1월1일' → '신정'
+function holidayName(raw){
+  let n = String(raw == null ? '' : raw).replace(/[<>&"'`\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 30);
+  const m = n.match(/^대체\s?공휴일\s?\((.+)\)$/);
+  if (m) n = `${m[1].trim()} 대체공휴일`;
+  if (n === '1월1일' || n === '1월 1일') n = '신정';
+  return n;
+}
+function readHolidayFile(data){
+  if (!data || !Array.isArray(data.holidays) || !/^\d{4}-\d{2}-\d{2}$/.test(data.updated || '')) return null;
+  const list = [];
+  for (const h of data.holidays){
+    if (!h || !/^\d{4}-\d{2}-\d{2}$/.test(h.date || '') || ymd(parse(h.date)) !== h.date) continue;
+    const name = holidayName(h.name);
+    if (name) list.push({date:h.date, name});
+  }
+  if (list.length < 10) return null;          // 비었거나 이상한 파일은 쓰지 않음
+  return {updated:data.updated, years:(Array.isArray(data.years) ? data.years : []).map(Number).filter(Boolean), list};
+}
+function loadHolidayFile(){
+  if (remoteTried) return remoteTried;
+  remoteTried = (async () => {
+    for (const url of holidayFileUrls()){
+      try {
+        const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4000);
+        const res = await fetch(url, {cache:'no-store', credentials:'omit', signal:ctl.signal});
+        clearTimeout(timer);
+        if (!res.ok) continue;
+        const got = readHolidayFile(await res.json());
+        if (got){ REMOTE = got; HOLIDAY_SOURCE_LABEL = `공휴일 자료: 공공데이터포털 특일 정보(${got.updated} 갱신)`; return; }
+      } catch {}
+    }
+  })();
+  return remoteTried;
+}
+// 내장 자료로 계산한 목록에, 공휴일 목록 파일에만 있는 날(임시공휴일·선거일 등)을 더함. 같은 날짜가 이미 있으면 내장 이름을 그대로 둠
+function mergeHolidays(built, remote, start, end){
+  if (!remote) return built;
+  const has = new Set(built.map(h => h.date)), out = [...built];
+  for (const r of remote.list){
+    if (r.date < start || r.date > end || has.has(r.date)) continue;
+    has.add(r.date);
+    out.push({date:r.date, name:r.name, rule:'none', group:null, api:true,
+              kind: r.name.includes('대체공휴일') ? '대체공휴일' : r.name.includes('임시') ? '임시공휴일' : '공휴일'});
+  }
+  return out.sort((a,b)=>a.date.localeCompare(b.date));
+}
 async function getHolidays(schoolYear){
   const start = `${schoolYear}-03-01`, end = lastDayOfFeb(schoolYear+1);
-  return addSubstitutes(baseHolidays([schoolYear, schoolYear+1]))
+  const built = addSubstitutes(baseHolidays([schoolYear, schoolYear+1]))
     .filter(h => h.date >= start && h.date <= end)
     .sort((a,b)=>a.date.localeCompare(b.date));
+  await loadHolidayFile();
+  return mergeHolidays(built, REMOTE, start, end);
 }
 
-// [후속-API] 2. 저장 파일을 다시 열 때 새 공휴일 비교·반영·알림(3단계 저장 파일에서 연결)
+// [후속-API] 2. 저장 파일을 다시 열 때 새 공휴일 비교·확인·반영(2026-11-20: 바로 반영하지 않고 먼저 물어봄)
 //  - 이전 자료에 없던 공휴일만 '새 공휴일'로 봄. 사용자가 끈 기존 공휴일은 다시 켜지 않음
-//  - 수기 수정한 날짜라도 공휴일을 추가 반영하고, 그날의 수기 항목은 남김
-//  - 알림: "○월 ○일이 공휴일(임시공휴일)로 지정되었습니다. 학사일정을 확인해 주세요."
-function compareHolidaysOnOpen(savedHolidays, currentHolidays){
+//  - findNewHolidays: 찾기만 함 / holdHolidays: 물어보는 동안 목록에서 빼 둠 / applyNewHolidays: 반영
+//  - 반영할 때 수기 수정한 날짜라도 공휴일을 추가하고, 그날의 수기 항목은 남김
+//  - '나중에'를 고르면 반영하지 않고, 저장 파일에도 넣지 않으므로 다음에 열 때 다시 물어봄
+function findNewHolidays(savedHolidays, currentHolidays){
   if (!savedHolidays.length) return [];
   const key = h => h.date + '|' + h.name;
   const had = new Set(savedHolidays.map(key));
-  const added = currentHolidays.filter(h => !had.has(key(h)));
+  return currentHolidays.filter(h => !had.has(key(h)));
+}
+function rebuildHmap(){ HMAP = {}; for (const h of HOL) (HMAP[h.date] ||= []).push(h); }
+function holdHolidays(added){ const out = new Set(added); HOL = HOL.filter(h => !out.has(h)); rebuildHmap(); }
+function applyNewHolidays(added){
+  HOL = [...HOL, ...added].sort((a,b)=>a.date.localeCompare(b.date)); rebuildHmap();
   for (const h of added)
     if (OVR[h.date] && !OVR[h.date].some(i => i.name === h.name))
       OVR[h.date].push({name:h.name, grades:[...GRADES], exclude:true, emph:false, auto:true});
-  return added;
 }
 
 /* ===================== 상태 ===================== */
@@ -659,7 +739,7 @@ const LEVELS = {
 };
 let LEVEL = 'mid';
 let GRADES = LEVELS.mid.grades;
-function useLevel(lv){ LEVEL = lv; GRADES = LEVELS[lv].grades; }
+function useLevel(lv){ LEVEL = lv; GRADES = LEVELS[lv].grades; document.documentElement.dataset.lvtheme = lv; }   // 화면 색도 학교급을 따름
 let P = null;          // 기본 정보
 let HOL = [], HMAP = {};
 let OVR = {};          // 수기 수정한 날짜: { 'YYYY-MM-DD': [항목...] }
@@ -1853,7 +1933,7 @@ async function generate(){
   P = p;
   useLevel(p.level); renderLegend(); $('levelWarn').hidden = true;
   HOL = await getHolidays(P.year);
-  HMAP = {}; for (const h of HOL) (HMAP[h.date] ||= []).push(h);
+  rebuildHmap();
   sem = 1; sel = P.d1; selItem = 0;
   renderAll();
   return true;
@@ -2015,7 +2095,8 @@ async function applyLoaded(data, handle){
   logAct(`저장 파일을 불러왔어요${data.fromVersion < SAVE_VER ? `(예전 형식 버전 ${data.fromVersion} → 버전 ${SAVE_VER}로 바꿈)` : ''}.`);
   const rids = Object.values(OVR).flat().map(i => Number(String(i.rid || '').slice(1)) || 0);
   ridSeq = Math.max(data.ridSeq || 1, ...rids.map(n => n + 1), 1);
-  const added = compareHolidaysOnOpen(data.holidays || [], HOL);
+  const added = findNewHolidays(data.holidays || [], HOL);
+  if (added.length) holdHolidays(added);                       // 물어보기 전에는 반영하지 않음
   dirty = false; lastSaved = null; fileHandle = null;
   renderAll();
   if (handle){
@@ -2024,9 +2105,16 @@ async function applyLoaded(data, handle){
   if (fileHandle) setStatus('auto', `${fileHandle.name} · 바꾸면 이 파일에 자동 저장돼요`);
   else setStatus('loaded');
   if (added.length){
-    showNotice(added.map(h => `${mdKo(h.date)}이 공휴일(${h.name})로 지정되었습니다.`).join(' ') + ' 학사일정을 확인해 주세요.');
-    logAct(`저장 파일 이후 새로 생긴 공휴일 ${added.length}일을 반영했어요: ${added.map(h => `${md(h.date)} ${h.name}`).join(', ')}`);
-    markDirty();
+    const names = added.map(h => `${md(h.date)}(${DOW[dow(h.date)]}) ${h.name}`).join(', ');
+    const wd = added.filter(h => !isWE(h.date)).length;
+    showNotice(`저장한 뒤 새로 지정된 공휴일이 ${added.length}일 있어요: ${names}. 반영하면 평일 ${wd}일이 수업일에서 빠져요. 반영할까요?`, [
+      {label:'반영하기', primary:true, act:() => {
+        applyNewHolidays(added);
+        logAct(`저장 파일 이후 새로 생긴 공휴일 ${added.length}일을 반영했어요: ${names}`);
+        markDirty(); renderAll();
+      }},
+      {label:'나중에', act:() => logAct(`새로 생긴 공휴일 ${added.length}일을 반영하지 않았어요(다음에 저장 파일을 열 때 다시 물어봐요): ${names}`)}
+    ]);
   }
 }
 window.addEventListener('beforeunload', e => { if (dirty){ e.preventDefault(); e.returnValue = ''; } });
@@ -2095,6 +2183,15 @@ function autoInfo(){
   if (subs.length) out.push(`대체공휴일 ${subs.length}일: ${subs.map(h => `${md(h.date)}(${DOW[dow(h.date)]}) ${h.name}`).join(', ')}`);
   const lunarYears = [P.year, P.year + 1].filter(y => LUNAR[y]);
   out.push(`음력 공휴일(설날·부처님오신날·추석)은 천문연구원 월력요항 ${lunarYears.join('·')}년 자료로 넣었어요.`);
+  if (REMOTE){
+    const fromApi = HOL.filter(h => h.api);
+    out.push(fromApi.length
+      ? `공휴일 목록 파일(${REMOTE.updated} 갱신)에서 내장 자료에 없는 공휴일 ${fromApi.length}일을 더했어요: ${fromApi.map(h => `${md(h.date)}(${DOW[dow(h.date)]}) ${h.name}`).join(', ')}`
+      : `공휴일 목록 파일(${REMOTE.updated} 갱신)과 비교했어요. 더할 공휴일이 없어요.`);
+    const inFile = new Set(REMOTE.list.map(r => r.date));
+    const onlyBuilt = HOL.filter(h => !h.api && REMOTE.years.includes(Number(h.date.slice(0,4))) && !inFile.has(h.date));
+    if (onlyBuilt.length) out.push(`내장 자료에는 있지만 공휴일 목록 파일에는 없는 날(확인해 보세요): ${onlyBuilt.map(h => `${md(h.date)} ${h.name}`).join(', ')}`);
+  } else out.push('공휴일 목록 파일을 읽지 못해 내장 자료만 썼어요(인터넷 연결이 없거나 파일로 내려받아 쓰는 경우).');
   const fixed = [P.d1, P.d2, P.d3, P.d4, P.d5, P.e2].filter(Boolean).length;
   out.push(`기본 정보 날짜로 개학식·방학식·종업식 ${fixed}건을 달력에 표시했어요.`);
   const off = [];
@@ -2271,7 +2368,9 @@ async function runChecks(full){
     add('한 장 양식 넘침', OPM.over ? 'warn' : 'ok', OPM.over ? `한 장을 약 ${OPM.overLines}줄 넘을 것 같아요. 행사가 많은 달: ${OPM.heavy.join('·')}` : 'A4 한 장에 들어가요(예상).');
 
   // 9~10. 안내
-  add('공휴일 자료', 'info', `${HOLIDAY_SOURCE_LABEL}. 임시공휴일·보궐선거일은 정해지면 날짜에서 직접 넣어야 해요.`);
+  add('공휴일 자료', 'info', REMOTE
+    ? `${HOLIDAY_SOURCE_LABEL}. 새로 지정된 임시공휴일·선거일은 매주 자동으로 받아 와요. 갱신 전이라면 날짜에서 직접 넣을 수 있어요.`
+    : `${HOLIDAY_SOURCE_LABEL}. 공휴일 목록 파일을 읽지 못해 내장 자료를 썼어요. 임시공휴일·보궐선거일은 정해지면 날짜에서 직접 넣어야 해요.`);
   const manual = Object.keys(OVR).sort();
   add('날짜별로 고친 날', 'info', manual.length ? `${manual.length}일을 직접 고쳤어요.` : '아직 직접 고친 날이 없어요.', manual.slice(0, 12).map(d => `${md(d)}(${DOW[dow(d)]}) ${OVR[d].map(i => i.name).join(', ') || '(일정 모두 지움)'}`).concat(manual.length > 12 ? [`… 외 ${manual.length - 12}일`] : []));
   return list;
@@ -2585,7 +2684,7 @@ document.addEventListener('keydown', e => {
   const n = $('notice');
   if (!n.hidden && e.key === 'Escape'){
     const btns = [...n.querySelectorAll('[data-i]')];
-    const cancel = btns.find(b => b.textContent.trim() === '취소') || (btns.length === 1 ? btns[0] : null);
+    const cancel = btns.find(b => ['취소','나중에'].includes(b.textContent.trim())) || (btns.length === 1 ? btns[0] : null);
     if (cancel){ e.preventDefault(); cancel.click(); }
     return;
   }
