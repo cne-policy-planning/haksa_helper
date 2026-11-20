@@ -1,0 +1,31 @@
+{
+  "name": "학사일정 수립 도우미",
+  "short_name": "학사일정 도우미",
+  "description": "학사일정을 넣으면 수업일수를 세고 한글 파일로 내보내는 프로그램",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F6F7F9",
+  "theme_color": "#1F3A68",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
