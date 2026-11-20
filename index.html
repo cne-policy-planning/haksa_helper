@@ -159,6 +159,9 @@ table.month td.ev{font-size:16px;color:var(--ink2);line-height:1.6;word-break:ke
 .main{display:grid;gap:20px;min-width:0}
 .months{display:grid;gap:20px;min-width:0}
 .months > *{min-width:0}
+.semgo{border:1px dashed var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:19px;border-radius:var(--r);padding:16px 20px;text-align:center}
+.semgo small{font-weight:500;font-size:15px;opacity:.8;margin-left:8px}
+.semgo:hover{filter:brightness(.97)}
 .side{display:grid;gap:16px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);max-height:calc(100vh - 32px);overflow:auto;border-radius:var(--r)}
 .semtabs{display:inline-flex;background:var(--head);border:1px solid var(--line);border-radius:10px;padding:3px;margin-bottom:16px}
 .semtabs button{border:0;background:transparent;color:var(--sub);font-weight:500;padding:7px 22px;border-radius:7px}
@@ -877,7 +880,10 @@ function renderSem(){
 
   const ms = [];
   for (let d = from; d <= to; d = addDays(d, 1)){ const m = d.slice(0,7); if (!ms.includes(m)) ms.push(m); }
-  $('months').innerHTML = ms.map(m => monthTable(m, from, to)).join('');
+  // 학기 이동 단추(2026-11-20): 1학기 달력 맨 아래 → 2학기, 2학기 달력 맨 위 → 1학기
+  $('months').innerHTML = (sem === 2 ? '<button type="button" class="semgo" data-gosem="1">← 1학기 달력 보기 <small>3월부터</small></button>' : '')
+    + ms.map(m => monthTable(m, from, to)).join('')
+    + (sem === 1 ? `<button type="button" class="semgo" data-gosem="2">2학기 달력 보기 → <small>${mdKo(P.s2)}부터</small></button>` : '');
   $('termNote').textContent = sem === 1
     ? `개학식 ${mdKo(P.d1)} · 여름방학식 ${mdKo(P.d2)}${P.d3 < P.s2 ? ` · 여름방학 개학식 ${mdKo(P.d3)}` : ''}`
     : `2학기 시작 ${mdKo(P.s2)}${P.d3 >= P.s2 ? ` · 여름방학 개학식 ${mdKo(P.d3)}` : ''} · 겨울방학 방학식 ${mdKo(P.d4)}${P.d5 ? ` · 겨울방학 개학식 ${mdKo(P.d5)}` : ''} · 종강 ${mdKo(P.e2)}`;
@@ -902,13 +908,18 @@ $('months').addEventListener('click', e => {
   else { const n = $('eName'); if (n) n.focus({preventScroll:true}); }
 });
 $('annual').addEventListener('click', e => { if (e.target.closest('#chkChip')) goChecks(); });
-document.querySelector('.semtabs').addEventListener('click', e => {
-  const b = e.target.closest('[data-s]'); if (!b) return;
-  const s = Number(b.dataset.s); if (s === sem) return;
+function goSem(s){
+  if (s === sem) return;
   sem = s;
   if (sel && semOf(sel) !== sem) sel = null;
   renderSem(); renderEditor();
   window.scrollTo({top:0});
+}
+document.querySelector('.semtabs').addEventListener('click', e => {
+  const b = e.target.closest('[data-s]'); if (b) goSem(Number(b.dataset.s));
+});
+$('months').addEventListener('click', e => {
+  const b = e.target.closest('[data-gosem]'); if (b) goSem(Number(b.dataset.gosem));
 });
 /* ===================== 날짜 편집 ===================== */
 // 기간 일정: 같은 rid를 가진 항목을 기간 안의 날짜마다 하나씩 넣음(rs~re, skipWE = 토·일 빼기)
@@ -1947,7 +1958,7 @@ $('setupCard').addEventListener('submit', async ev => {
 // 작성 내용은 사용자가 고른 PC의 저장 파일에만 남김(서버·쿠키·브라우저 저장소 사용 안 함)
 const SAVE_APP = 'haksa-helper', SAVE_VER = 2;   // 2026-11-02 버전 2(변환은 migrateSave 한 곳에서)
 const FS_OK = typeof window.showSaveFilePicker === 'function' && typeof window.showOpenFilePicker === 'function';
-let fileHandle = null, dirty = false, saveTimer = null, lastSaved = null, saveState = 'none', fsBlocked = false;
+let fileHandle = null, dirty = false, saveTimer = null, lastSaved = null, saveState = 'none', fsBlocked = false, autoFailed = false;
 const FILE_TYPES = [{description:'학사일정 저장 파일', accept:{'application/json':['.json']}}];
 
 const saveName = () => `학사일정_${LEVELS[P.level].name}_${P.year}학년도.json`;
@@ -1963,20 +1974,24 @@ function snapshot(){
 const hm = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 function setStatus(state, sub){
   saveState = state;
+  const canAuto = FS_OK && !fsBlocked;    // 이 브라우저에서 자동 저장을 쓸 수 있는지
   const map = {
-    none:   ['저장 파일 없음', '지금 내용은 이 화면에만 있어요. 저장 파일을 만들거나 저장본을 내려받으세요.', ''],
+    none:   ['저장 파일 없음', canAuto ? '지금 내용은 이 화면에만 있어요. 「저장 파일 만들기」를 한 번 해 두면 그 뒤로 자동 저장돼요.' : '지금 내용은 이 화면에만 있어요. 「저장본 내려받기」로 저장하세요.', ''],
     auto:   ['자동 저장됨', `${lastSaved ? hm(lastSaved) + ' · ' : ''}${fileHandle ? fileHandle.name : ''}`, 'ok'],
     saving: ['저장하는 중', fileHandle ? fileHandle.name : '', 'busy'],
-    pending:['저장 안 된 변경 있음', fileHandle ? '입력을 멈추면 잠시 뒤 자동 저장돼요' : '저장본을 내려받아야 고친 내용이 남아요', 'warn'],
+    pending:['저장 안 된 변경 있음', fileHandle ? '입력을 멈추면 잠시 뒤 자동 저장돼요' : canAuto ? '「저장 파일 만들기」를 눌러야 고친 내용이 남아요' : '저장본을 내려받아야 고친 내용이 남아요', 'warn'],
     manual: ['저장본 내려받음', `${lastSaved ? hm(lastSaved) : ''} · 이후에 고친 내용은 다시 내려받아야 남아요`, 'ok'],
-    loaded: ['저장 파일을 불러왔어요', '고친 뒤에는 저장본을 다시 내려받아야 남아요', 'ok'],
+    loaded: ['저장 파일을 불러왔어요', canAuto ? '고친 내용을 남기려면 「저장 파일 만들기」로 저장할 파일을 정하세요(같은 파일을 골라 덮어써도 돼요)' : '고친 뒤에는 저장본을 다시 내려받아야 남아요', 'ok'],
     error:  ['자동 저장 실패', '저장 파일에 쓰지 못했어요. 「저장본 내려받기」로 저장하거나 저장 파일을 다시 만드세요.', 'bad'],
   };
   const [t, s, c] = map[state];
   $('sTitle').textContent = t;
   $('sSub').textContent = sub ?? s;
   $('sDot').className = 'dot ' + c;
-  $('bCreate').hidden = !FS_OK || fsBlocked || !!fileHandle;
+  // 저장 단추는 상황에 따라 하나만(2026-11-20): 자동 저장을 쓸 수 있으면 「저장 파일 만들기」,
+  // 쓸 수 없는 브라우저이거나 자동 저장이 실패했을 때만 「저장본 내려받기」
+  $('bCreate').hidden = !canAuto || !!fileHandle;
+  $('bDown').hidden = canAuto && !autoFailed;
 }
 function markDirty(){
   dirty = true;
@@ -1988,9 +2003,9 @@ async function autoSave(){
   setStatus('saving');
   try {
     const w = await fileHandle.createWritable(); await w.write(snapshot()); await w.close();
-    dirty = false; lastSaved = new Date(); setStatus('auto');
+    dirty = false; lastSaved = new Date(); autoFailed = false; setStatus('auto');
   } catch (e){
-    fileHandle = null; setStatus('error');
+    fileHandle = null; autoFailed = true; setStatus('error');
     showNotice('저장 파일에 자동 저장하지 못했어요. 파일을 옮기거나 지웠거나, 쓰기 허락을 거부했을 수 있어요. 「저장본 내려받기」로 지금 내용을 저장하세요.');
   }
 }
@@ -2758,7 +2773,7 @@ $('lvSw').addEventListener('click', e => {
     if (await generate()){ markDirty(); window.scrollTo({top:0}); }
   };
   if (Object.keys(OVR).length)
-    showNotice(`${to}으로 이동하면 ${from} 학사일정에서 날짜별로 고친 내용이 지워지고, 학년도와 기본 정보 날짜만 이어져요. 필요하면 먼저 「저장본 내려받기」로 저장하세요.${fileHandle ? ' 지금 연결된 저장 파일은 그대로 남고, 자동 저장 연결만 끊어져요.' : ''}`,
+    showNotice(`${to}으로 이동하면 ${from} 학사일정에서 날짜별로 고친 내용이 지워지고, 학년도와 기본 정보 날짜만 이어져요. 필요하면 먼저 저장해 두세요.${fileHandle ? ' 지금 연결된 저장 파일은 그대로 남고, 자동 저장 연결만 끊어져요.' : ''}`,
       [{label:`${to}으로 이동`, primary:true, act:go}, {label:'취소'}]);
   else go();
 });
