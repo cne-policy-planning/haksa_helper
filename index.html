@@ -2138,12 +2138,25 @@ async function applyLoaded(data, handle){
 window.addEventListener('beforeunload', e => { if (dirty){ e.preventDefault(); e.returnValue = ''; } });
 
 // 한글 파일(HWPX) 내려받기: 중등은 바로, 초등은 출력 미리보기에서 양식을 고른 뒤(미리보기 화면에서 누르면 고른 양식으로 바로)
+// 2026-11-20: 연간 수업일수가 목표와 다르면(부족·초과) 한글 파일을 내려받지 못함. 저장 파일은 그대로 저장할 수 있음
+function targetBlocked(){
+  const t = totals(), off = GRADES.map((g, i) => ({g, total:t[i].total, target:P.targets[i], diff:t[i].total - P.targets[i]})).filter(x => x.diff !== 0);
+  if (!off.length) return false;
+  const one = x => `${x.total}일(목표 ${x.target}일, ${x.diff < 0 ? `${-x.diff}일 부족` : `${x.diff}일 초과`})`;
+  const same = off.length === GRADES.length && off.every(x => x.total === off[0].total && x.target === off[0].target);
+  const what = same ? `전 학년 ${one(off[0])}` : off.map(x => `${x.g}학년 ${one(x)}`).join(' · ');
+  showNotice(`연간 수업일수가 목표와 달라 한글 파일을 내려받을 수 없어요. ${what}. 일정을 고쳐 수업일수를 목표와 같게 맞추거나, 「기본 정보」에서 목표 수업일수를 확인한 뒤 다시 눌러 주세요.`,
+    [{label:'점검 보기', primary:true, act:goChecks}, {label:'취소'}]);
+  return true;
+}
 $('btnHwpx').addEventListener('click', () => {
+  if (targetBlocked()) return;
   if (LEVEL === 'elem' && view !== 'out'){ setView('out'); renderAll(); window.scrollTo({top:0}); return; }
   requestDownload();
 });
 $('outDown').addEventListener('click', () => requestDownload());
 function requestDownload(){
+  if (targetBlocked()) return;
   if (curLayout() === 'one' && OPM && OPM.over){
     showNotice(`행사 내용이 많아 한 장을 넘어갈 것 같아요(약 ${OPM.overLines}줄 넘침, ${OPM.heavy.join('·')}에 행사가 많아요). 그대로 내려받으면 표 끝부분이 2쪽으로 넘어가요.`,
       [{label:'그대로 내려받기', primary:true, act:() => downloadHwpx('one')}, {label:'여러 장으로 출력', act:() => downloadHwpx('week')}, {label:'취소'}]);
@@ -2152,6 +2165,7 @@ function requestDownload(){
   downloadHwpx(curLayout());
 }
 async function downloadHwpx(layout){
+  if (targetBlocked()) return;
   const btns = [$('btnHwpx'), $('outDown')], btn = layout && view === 'out' ? $('outDown') : $('btnHwpx'), label = btn.textContent;
   if (typeof CompressionStream !== 'function'){
     showNotice('이 브라우저는 한글 파일 만들기를 지원하지 않아요. 최신 크롬이나 엣지로 열어 주세요.'); return;
@@ -2309,7 +2323,7 @@ async function runChecks(full){
   if (off.length){
     const nShort = off.filter(x => x.diff < 0).length, nOver = off.length - nShort;
     add('연간 목표 수업일수', 'bad',
-      [nShort ? `${nShort}개 학년이 목표보다 적어요.` : '', nOver ? `${nOver}개 학년이 목표를 넘었어요. 목표 일수와 같아야 해요.` : ''].filter(Boolean).join(' '),
+      [nShort ? `${nShort}개 학년이 목표보다 적어요.` : '', nOver ? `${nOver}개 학년이 목표를 넘었어요.` : '', '목표와 같아야 한글 파일을 내려받을 수 있어요.'].filter(Boolean).join(' '),
       off.map(({g, i, diff}) => `${g}학년 ${T[i].total}일 / 목표 ${P.targets[i]}일 — ${diff < 0 ? `${-diff}일 부족` : `${diff}일 초과(${diff}일 줄여야 해요)`} (1학기 ${T[i].c1}일 · 2학기 ${T[i].c2}일)`));
   }
   else add('연간 목표 수업일수', 'ok', '모든 학년이 목표와 같아요. ' + GRADES.map((g, i) => `${g}학년 ${T[i].total}일/${P.targets[i]}일`).join(' · '));
@@ -2746,12 +2760,30 @@ function demoEvents(){
 async function startDemo(lv){
   setLevelRadio(lv); renderTargets(lv);
   $('year').value = String(Math.max(...supportedYears())); fillDefaults();
-  if (!(await generate())) return;
-  OVR = {}; LOG = [];
-  let n = 0;
-  for (const e of demoEvents()){
-    const obj = {name:e.name, grades:e.grades, exclude:e.exclude, emph:false};
-    if (e.start === e.end){ if (putItem(e.start, obj)) n++; } else { addRange(obj, e.start, e.end, true); n++; }
+  // 2026-11-20: 목표와 딱 맞아야 한글 파일을 내려받을 수 있으므로, 예시는 연간 수업일수가 목표(190일)와 같게 날짜를 맞춤.
+  // 2월 등교 없이(겨울방학 개학식 '해당 사항 없음') 겨울방학 방학식을 평일 하루씩 앞당겨 목표에 맞춤
+  setNoD5(true);
+  const build = async () => {
+    if (!(await generate())) return false;
+    OVR = {}; LOG = [];
+    let n = 0;
+    for (const e of demoEvents()){
+      const obj = {name:e.name, grades:e.grades, exclude:e.exclude, emph:false};
+      if (e.start === e.end){ if (putItem(e.start, obj)) n++; } else { addRange(obj, e.start, e.end, true); n++; }
+    }
+    return n;
+  };
+  let n = await build();
+  if (n === false) return;
+  for (let guard = 0; guard < 60; guard++){
+    const over = Math.max(...totals().map((x, i) => x.total - P.targets[i]));
+    if (over <= 0) break;
+    let d = addDays($('d4').value, -1);
+    while (isWE(d) || HMAP[d]) d = addDays(d, -1);            // 방학식은 등교하는 날로
+    $('d4').value = d; $('e2').value = d;
+    const m = await build();
+    if (m === false) break;
+    n = m;
   }
   logAct(`예시 일정 ${n}개를 넣었어요(시험·체험학습·재량휴업일 등). 마음대로 고쳐 보세요.`);
   enterApp(); renderAll(); window.scrollTo({top:0});
