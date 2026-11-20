@@ -867,12 +867,14 @@ function renderSem(){
   const t = totals();
   const parts = GRADES.map((g,i) => {
     const diff = t[i].total - P.targets[i];
-    return diff < 0 ? `<span class="short">${g}학년 ${t[i].total}일(목표보다 ${-diff}일 부족)</span>` : `${g}학년 ${t[i].total}일`;
+    // 2026-11-20: 목표 수업일수는 딱 맞아야 함(모자라도, 넘어도 안 됨)
+    return diff < 0 ? `<span class="short">${g}학년 ${t[i].total}일(목표보다 ${-diff}일 부족)</span>`
+         : diff > 0 ? `<span class="short">${g}학년 ${t[i].total}일(목표보다 ${diff}일 초과)</span>` : `${g}학년 ${t[i].total}일`;
   });
   const same = P.targets.every(x => x === P.targets[0]);
   // 부족하면 숫자로: 학년마다 1학기+2학기=연간, 목표까지 며칠 더 필요한지
-  const shortLines = GRADES.map((g,i) => ({g,i,diff:t[i].total - P.targets[i]})).filter(x => x.diff < 0)
-    .map(({g,i,diff}) => `<span class="gl short">${g}학년: 1학기 ${t[i].c1}일 + 2학기 ${t[i].c2}일 = ${t[i].total}일 → 목표 ${P.targets[i]}일까지 ${-diff}일 더 필요</span>`).join('');
+  const shortLines = GRADES.map((g,i) => ({g,i,diff:t[i].total - P.targets[i]})).filter(x => x.diff !== 0)
+    .map(({g,i,diff}) => `<span class="gl short">${g}학년: 1학기 ${t[i].c1}일 + 2학기 ${t[i].c2}일 = ${t[i].total}일 → ${diff < 0 ? `목표 ${P.targets[i]}일까지 ${-diff}일 더 필요` : `목표 ${P.targets[i]}일보다 ${diff}일 많음 · ${diff}일 줄여야 함`}</span>`).join('');
   const yr = recount().year, gap = Math.max(...yr) - Math.min(...yr);
   const dowLine = `<span class="dowline ${gap >= DOW_WARN ? 'warn' : ''}">요일별 수업일(연간) ${dowText(yr)}${gap >= DOW_WARN ? ` — 요일 간 ${gap}일 차이` : ''}</span>`;
   $('annual').innerHTML = `연간 ${parts.join(' · ')} <span>· 목표 ${same ? P.targets[0]+'일' : P.targets.map((x,i)=>`${i+1}학년 ${x}일`).join(', ')}</span>${shortLines}${dowLine}<button type="button" class="chkchip" id="chkChip"></button>`;
@@ -1140,7 +1142,7 @@ function summaryHtml(){
   h += `<section class="card"><h3>2학기 <small>${md(P.s2)}~${md(P.e2)}</small></h3><table>${GRADES.map((g,i)=>`<tr><td>${g}학년</td><td class="n">${t[i].c2}일</td></tr>`).join('')}</table></section>`;
   h += `<section class="card"><h3>연간 · 목표 대비</h3><table>${GRADES.map((g,i)=>{
       const diff = t[i].total - P.targets[i];
-      return `<tr><td>${g}학년</td><td class="n">${t[i].total}일</td><td class="n ${diff<0?'short':''}">${diff<0?`${-diff}일 부족`:diff===0?'목표 달성':`+${diff}일`}</td></tr>`;
+      return `<tr><td>${g}학년</td><td class="n">${t[i].total}일</td><td class="n ${diff!==0?'short':''}">${diff<0?`${-diff}일 부족`:diff===0?'목표와 같음':`${diff}일 초과`}</td></tr>`;
     }).join('')}</table></section></div>`;
   const weekdayHol = HOL.filter(x => !isWE(x.date)).length;
   h += `<details class="card hol"><summary>반영된 공휴일 ${HOL.length}일 (평일 ${weekdayHol}일)</summary><ul>`;
@@ -2302,11 +2304,15 @@ async function runChecks(full){
   const R = recount(), T = totals(), list = [];
   const add = (name, status, desc, items = []) => list.push({name, status, desc, items});
 
-  // 1. 연간 목표
-  const short = GRADES.map((g, i) => ({g, i, diff:T[i].total - P.targets[i]})).filter(x => x.diff < 0);
-  if (short.length) add('연간 목표 수업일수', 'bad', `${short.length}개 학년이 목표보다 적어요.`,
-    short.map(({g, i, diff}) => `${g}학년 ${T[i].total}일 / 목표 ${P.targets[i]}일 — ${-diff}일 부족 (1학기 ${T[i].c1}일 · 2학기 ${T[i].c2}일)`));
-  else add('연간 목표 수업일수', 'ok', GRADES.map((g, i) => `${g}학년 ${T[i].total}일/${P.targets[i]}일`).join(' · '));
+  // 1. 연간 목표: 목표와 딱 맞아야 통과(2026-11-20 — 모자라도, 넘어도 '확인 필요')
+  const off = GRADES.map((g, i) => ({g, i, diff:T[i].total - P.targets[i]})).filter(x => x.diff !== 0);
+  if (off.length){
+    const nShort = off.filter(x => x.diff < 0).length, nOver = off.length - nShort;
+    add('연간 목표 수업일수', 'bad',
+      [nShort ? `${nShort}개 학년이 목표보다 적어요.` : '', nOver ? `${nOver}개 학년이 목표를 넘었어요. 목표 일수와 같아야 해요.` : ''].filter(Boolean).join(' '),
+      off.map(({g, i, diff}) => `${g}학년 ${T[i].total}일 / 목표 ${P.targets[i]}일 — ${diff < 0 ? `${-diff}일 부족` : `${diff}일 초과(${diff}일 줄여야 해요)`} (1학기 ${T[i].c1}일 · 2학기 ${T[i].c2}일)`));
+  }
+  else add('연간 목표 수업일수', 'ok', '모든 학년이 목표와 같아요. ' + GRADES.map((g, i) => `${g}학년 ${T[i].total}일/${P.targets[i]}일`).join(' · '));
 
   // 2. 화면 숫자 = 다시 센 숫자
   const mis = [];
